@@ -1,4 +1,4 @@
-# Jojo's IDrive CLI
+# Jojo's IDrive Backup CLI
 ```
 JiCli v0.1 (untested alpha) - Jojo's IDrive CLI - Copyright (C) 2022 Joris Heirbaut GPLv3
 
