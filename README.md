@@ -31,7 +31,7 @@ commands:
   set [<var> [<value>]]...  set configuration var(s) to value(s)
   get [<var>] [<var>]...    get configuration var(s)
 examples:
-  export IDRIVE_USR=me@mymail.be        ifirst set idrive username
+  export IDRIVE_USR=me@mymail.be        set idrive username
   jicli                                 show backup progress
   cat CONFIGURATION_FILE | jicli dec    decode configuration file
   jicli set bwthrottle 50               set BWTHROTTLE to 50 in configuration file 
