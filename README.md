@@ -1,4 +1,5 @@
 # jicli
+```
 JiCli v0.1 (untested alpha) -  Jojo's IDrive CLI  - Copyright (C) 2022 Joris Heirbaut GPL
 
 JiCli is free software: you can redistribute it and / or modify it under the terms of the
@@ -32,3 +33,5 @@ examples:
   jicli                                 show backup progress
   cat CONFIGURATION_FILE | jicli dec    decode configuration file
   jicli set bwthrottle 50               set BWTHROTTLE to 50 in configuration file 
+```
+  
