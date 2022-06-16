@@ -52,9 +52,9 @@ Example output:
 2 mnt/mydrive/dv/year.04 Firenze/dv.zzzzzz.05.avi:             100%    161Mb 152.26kB/s  954/4916  0:18:03 
 2 mnt/mydrive/dv/year.07.19-31 Champagny/dv.zzzzzz.21.avi:     100%    157Mb 153.49kB/s 1111/4916  0:17:29 
 2 mnt/mydrive/dv/year.07.19-31 Champagny/dv.zzzzzz.02.avi:     100%    159Mb 147.07kB/s 1271/4916  0:18:33 
-2 mnt/mydrive/dv/year.12.25-07...y &amp; opa/dv.zzzzzz.05.avi: 100%    158Mb 122.46kB/s 1430/4916  0:22:04 
+2 mnt/mydrive/dv/year.12.25-07...y &amp; mna/dv.zzzzzz.05.avi: 100%    158Mb 122.46kB/s 1430/4916  0:22:04 
 2 mnt/mydrive/dv/year.04.08 Paasklokken/dv.zzzzzz.30.avi:      100%    161Mb 123.76kB/s 1591/4916  0:22:15 
-2 mnt/mydrive/dv/year.04.13 Aa... &amp; Dine/dv.zzzzzz.08.avi: 100%    154Mb 124.25kB/s 1745/4916  0:21:10 
+2 mnt/mydrive/dv/year.04.13 Aa... &amp; uiop/dv.zzzzzz.08.avi: 100%    154Mb 124.25kB/s 1745/4916  0:21:10 
 2 mnt/mydrive/dv/year.05.26 Communie xxxx/dv.zzzzzz.19.avi:    100%    160Mb 137.23kB/s 1905/4916  0:19:56 
 2 mnt/mydrive/dv/year.07.18-01 Champagny/dv.zzzzzz.02.avi:     100%    161Mb 122.53kB/s 2067/4916  0:22:27 
 2 mnt/mydrive/dv/year.07.18-01 Champagny/dv.zzzzzz.12.avi:      33%    158Mb 121.89kB/s 2120/4916  0:15:02
