@@ -1,6 +1,6 @@
 # Jojo's IDrive Backup CLI
 
-Small utility for following the progress of IDrive Backup for Linux, allowing to modify the bandwith percentage without need to connect to IDrive's Web Dashboard.
+Small utility for following the progress of IDrive Backup for Linux, allowing to modify the bandwith percentage from the commandline.
 ```
 JiCli v0.1 (untested alpha) - Jojo's IDrive CLI - Copyright (C) 2022 Joris Heirbaut GPLv3
 
