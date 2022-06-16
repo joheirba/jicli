@@ -1,6 +1,6 @@
 # Jojo's IDrive CLI
 ```
-JiCli v0.1 (untested alpha) -  Jojo's IDrive CLI  - Copyright (C) 2022 Joris Heirbaut GPL
+JiCli v0.1 (untested alpha) - Jojo's IDrive CLI - Copyright (C) 2022 Joris Heirbaut GPLv3
 
 JiCli is free software: you can redistribute it and / or modify it under the terms of the
 GNU General Public License as published by the Free Software Foundation, either version 3
