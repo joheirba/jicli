@@ -1,0 +1,472 @@
+#!/bin/bash
+#
+# JiCli - Jojo's IDrive CLI - Copyright (C) 2022 Joris Heirbaut - GPLv3
+#
+# JiCli is free software: you can redistribute it and / or modify it under the terms of the
+# GNU General Public License as published by the Free Software Foundation, either version 3
+# of the License, or (at your option) any later version.
+#    
+# This program is distributed in the hope that it will be useful,  but WITHOUT ANY WARRANTY
+# without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+# See the GNU General Public License for more details.
+#    
+# You should have received a copy of the GNU General Public License along with this program
+# If not, see www.gnu.org/licenses/gpl-3.0
+#
+# History
+# v0.1  - Jun 2022 - Joris Heirbaut - Initial version (untested !)
+
+# From https://man7.org/linux/man-pages/man4/console_codes.4.html
+# \eM    Reverse linefeed
+# \e[xA  Move cursor x lines up
+# \e[xB  Move cursor x lines down
+# \e[1J  Erase display from start to cursor
+# \e[2J  Erase display 
+# \e[3J  Erase display and scroll buffer
+# \e[K   Erase to end of line
+# \e[1K  Erase from start of line to cursor
+# \e[xL  Insert x lines
+# \e[7m  Reverse video
+# \e[27m Reverse video off
+
+# defaults
+didv=""     # IDrive directory
+dbse=""     # IDrive base user directory
+dbup=""     # IDrive backup status directory
+iusr=""     # IDrive user
+lusr=""     # Local  user
+cmd=""      # Command to execute
+
+# parse commandline
+oh=false # option-help
+od=false # option-debug
+ov=false # option-verbose
+on=""
+
+while getopts "d:hl:i:n:u:v" opt
+do
+  case "$opt" in
+    d) dbse="$OPTARG" ;;
+    h) oh=true ;;
+    l) lusr="$OPTARG" ;;
+    i) didv="$OPTARG" ;;
+    n) on="$OPTARG" ;;
+    u) iusr="$OPTARG" ;;
+    v) $ov && od=true || ov=true ;;
+  esac
+done
+shift $((OPTIND-1))
+cmd="$1"
+
+# debug: show commandline
+$od && echo "$0 $@" >&2
+#$ov && echo "verbose" >&2
+
+# check values
+[[ -z "$didv" ]] && didv="${IDRIVE_DIR:-/opt/IDrive}"           # IDrive directory
+[[ -z "$iusr" ]] && iusr="${IDRIVE_USR}"                        # IDrive user
+[[ -z "$lusr" ]] && lusr=$(id -u -n)                            # Local  user
+[[ -z "$dbup" ]] && dbse="$didv/idriveIt/user_profile/$lusr/$iusr"
+dbup="$dbse/Backup/DefaultBackupSet"
+
+[[ -d "$didv" ]] || { echo "error: IDrive directory $didv not found." ; oh=true ; }
+[[ -d "$dbup" ]] || { echo "error: Backup directory $dbup not found." ; oh=true ; }
+
+# usage
+function usage() {
+  local n="${0##*/}"
+  # don't replace tabs by spaces in following lines !!!
+  sed -e "s/jicli/$n/g" <<-'EOFHELP'
+	JiCli v0.1 (untested alpha) -  Jojo's IDrive CLI  - Copyright (C) 2022 Joris Heirbaut GPL
+
+	JiCli is free software: you can redistribute it and / or modify it under the terms of the
+	GNU General Public License as published by the Free Software Foundation, either version 3
+	of the License, or (at your option) any later version.
+	
+	This program is distributed in the hope that it will be useful,	 but WITHOUT ANY WARRANTY
+	without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+	See the	GNU General Public License for more details.
+	
+	You should have received a copy of the GNU General Public License along with this program
+	If not, see www.gnu.org/licenses/gpl-3.0
+	
+	usage: jicli [-hvv] [-d <udir>] [-i <idir>] [-u <usr>] [-l <lusr>] [<command> [<arg>...]]
+	flags:
+	  -h    show help and exit
+	  -v    be verbose
+	  -vv   be very verbose
+	  -d    set idrive user directory (default /<idir>/idriveIt/user_profile/<lusr>/<usr>)
+	  -i    set idrive directory (default: /opt/IDrive)
+	  -u    set idrive user (default $IDRIVE_USR, ex. -u me@mymail.be)
+	  -l    set local  user (default $USER, ex. -l root or -l jojo :-)
+	commands:
+	  pgs|progress              show backup progress (default)
+	  enc|encode [<data>]       encode data or stdin
+	  dec|decode [<data>]       decode data or stdin
+	  set [<var> [<value>]]...  set configuration var(s) to value(s)
+	  get [<var>] [<var>]...    get configuration var(s)
+	examples:
+	  export IDRIVE_USR=me@mymail.be        ifirst set idrive username
+	  jicli                                 show backup progress
+	  cat CONFIGURATION_FILE | jicli dec    decode configuration file
+	  jicli set bwthrottle 50               set BWTHROTTLE to 50 in configuration file 
+	EOFHELP
+}
+if $oh
+then
+  usage
+  exit
+fi
+
+#==============================================================================
+# Functions
+#==============================================================================
+function ienc(){
+    $od && echo "$0 $@" >&2
+    [[ -z "$1" ]] && enc=$(cat) || enc="$1"
+    $od && echo "Input=$enc" >&2
+    enc=$(echo -n "$enc" | base64)
+    $od && echo "Bse64=$enc" >&2
+    shl=$((${#enc}/4))
+    swp="${enc:$((shl*3)):shl}${enc:$shl:$((shl*2))}${enc:0:$shl}${enc:$((shl*4))}"
+    $od && echo "Swap =$swp" >&2
+    echo -n "$swp"
+}
+function idec(){
+    $od && echo "$0 $@" >&2
+    [[ -z "$1" ]] && enc=$(cat) || enc="$1"
+    #$od && echo "Input=$enc" >&2
+    shl=$((${#enc}/4))
+    swp="${enc:$((shl*3)):shl}${enc:$shl:$((shl*2))}${enc:0:$shl}${enc:$((shl*4))}"
+    #$od && echo "Swap =$swp" >&2
+    echo -n "$swp" | base64 -d
+}
+function iset(){
+    local ot=false
+    local cfg="$dbse/CONFIGURATION_FILE"
+
+    # set or get ?
+    if [[ "$1" == "get" ]] 
+    then
+        shift
+        ot=true
+        $od && echo "iget $@" >&2
+    else
+        $od && echo "iset $@" >&2
+    fi
+
+    # find configuration file
+    $od && echo "$cfg" >&2
+    $ov && ! [[ -f "$cfg" ]] && echo "$cfg does not exist !" >&2
+    [[ -f "$cfg" ]] || return 2
+
+    dta="$(idec < "$cfg")"
+    if [[ $# -eq 0 ]] 
+    then
+        echo "$dta"
+    elif $ot || [[ $# -eq 1 ]] 
+    then
+        $od && echo "$dta" >&2
+        while [[ $# -gt 0 ]]
+        do
+            var="${1^^}"
+            shift
+
+            val=$(echo -n "$dta" | sed -ne "s/^.*\"$var\": *{\"VALUE\": *\"\([^\"]*\).*$/\1/p")
+            $ov && [[ -z "$val" ]] && echo "iget value not found for $var"
+            $od && [[ -z "$val" ]] && echo "iget get $var=$val"
+            echo "$val"
+        done
+    else
+        while [[ $# -ge 2 ]]
+        do
+          var="${1^^}"
+          val="$2"
+          shift 2
+    
+          dta="$(echo -n "$dta" | sed -e "s/\(\"$var\": *{\"VALUE\": *\)[^}]*}/\1\"$val\"}/g")"
+          $od && echo "$dta" >&2
+        done
+        $od || ienc "$dta" > $cfg
+    fi
+}
+
+# getquota [-l] <transferred>
+#typeset -i qua_tft=0
+function getquota(){
+    # Lazy: only get quota every 60seconds and 1GB of data
+    if [[ "$1" == "-l" ]]
+    then
+      shift
+      ((qua_tft = qua_tft + ${1:-0}))
+      ((SECONDS > (qua_sec + 60) )) || return 1
+      ((qua_tft > (qua_old + 1024 * 1024 * 1024) )) || return 2
+    elif [[ $qua_sec -gt 0 ]]
+    then
+      ((SECONDS > (qua_sec + 20) )) || return 1
+    fi
+
+    # Get quota
+    $didv/scripts/utility.pl GETQUOTA < /dev/null &
+    # faster: /opt/IDrive/scripts/IDrivelib/dependencies/python/dashboard 9 16553067079
+
+    # Update lazy counters
+    qua_sec=$SECONDS
+    qua_old=$qua_tft
+}
+
+# Display status line below the progress lines
+function dispsta()
+{
+    local bws=$(cat "$dbup"/bw.txt)
+    local tfs=$(cat "$dbup"/TotalSizeFile)
+    local pgs=$(awk 'FNR==3 {x+=$1} END {print x}' "$dbup"/PROGRESS_DETAILS_*)
+
+    ((pgs=pgs/1024/1024/1024))
+    ((tfs=tfs/1024/1024/1024))
+    txt="GPLv3 h:help q:quit +/-:change bw=$bws Tft=$pgs/${tfs}GB"
+
+    if [[ -f "$dbup"/../../.quota.txt ]]
+    then
+        eval $(cat "$dbup"/../../.quota.txt)
+        ((qt=totalQuota/1024/1024/1024))
+        ((qu=usedQuota/1024/1024/1024))
+        txt+=" Quota=${qu}/${qt}GB"
+
+        $ov && txt+="/$((SECONDS - qua_sec)):$(((qua_tft - qua_old) / 1024 / 1024))"
+    fi
+
+    ((cols=(ttc>106?106:ttc)-10)) # more than 106 is not needed - 10 for clock at the end
+    printf "\n\e[7m%-${cols}s%4d:%02d:%02d\e[27m\r\e[1A" "$txt" \
+        $((SECONDS/3600)) $((SECONDS%3600/60)) $((SECONDS%60))
+
+#dbg:  read -rsn1  x < $tty
+}
+
+# Display messages above the progress lines
+function dispmsg()
+{
+    local fn="$1"; shift
+    local msg="$@"
+    local i=${#oname[@]}
+
+    # Print above oldest running file
+    #printf "\n==="
+    #printf "\n??? $i ???\n"
+    pre="\n\n\e[$((i+1))A\e[1L"
+    if [[ $i -ge 1 ]]
+    then
+      pst="\e[K\r\e[$((i))B"
+    else
+      pst="\e[K\r"
+    fi
+
+#dbg    printf "${pre}debug msg\r"
+#dbg    read -rsn1  x < $tty
+#dbg    pre=""
+
+    printf "${pre}%s [%s]${pst}" "$fn" "$msg"
+}
+
+# Encode/decode idrive configuration files
+#==============================================================================
+# Execute command
+#==============================================================================
+case "${cmd,,}" in
+    "enc"|"encode"  ) shift ; ienc "$@" ; exit ;;
+    "dec"|"decode"  ) shift ; idec "$@" ; exit ;;
+    "set"           ) shift ; iset "$@" ; exit ;;
+    "get"           ) shift ; iset get "$@" ; exit ;;
+    "pgs"|"progress") shift ;;
+    ""              ) ;;
+    *               ) echo "Error: unknown command $cmd" ; usage ; exit ;;
+esac
+
+#==============================================================================
+# Show Backup Progress
+#==============================================================================
+# Prepare terminal and exit trap
+tty=$(tty)
+tto=$(stty -g)
+ttc=$(tput cols)   # get width of line in characters
+tput rmam          # no wrapping on terminal
+tput civis         # cursor invisible
+stty -echo
+function cleanup()
+{
+    tput smam   # restore wrapping
+    tput cnorm  # cursor visible
+    stty $tto   # restore stty echo
+    printf "\n\n"
+}
+trap cleanup EXIT
+trap 'ttc=$(tput cols)' WINCH
+
+# Show status line
+dispsta
+
+# Start following
+chrono=$SECONDS
+[[ -z "$on" ]] || on="-n $on"
+tail $on -F "$dbup"/output.txt_* 2>&1 |
+while :
+do
+    read -t 0.2 x  # polling minimum every 0.2 seconds for a smooth clock on the status line :-)
+    if ((SECONDS > chrono))
+    then    
+        # Handle interactive commands
+        while read -rsn1 -t 0.001 key < $tty 2> /dev/null
+        do
+          case $key in
+            "+")  
+              bwt=$(cat "$dbup"/bw.txt)
+              ((bwt=bwt+10))
+              ((bwt>100)) && bwt=100
+              echo -n $bwt > "$dbup"/bw.txt
+              iset BWTHROTTLE $bwt
+            ;;
+            "-")  
+              bwt=$(cat "$dbup"/bw.txt)
+              ((bwt=bwt-10))
+              ((bwt<10)) && bwt=10
+              echo -n $bwt > "$dbup"/bw.txt
+              iset BWTHROTTLE $bwt
+            ;;
+            "h")
+              # print usage below the status line
+              printf "\n\n"
+              usage
+    
+              # compact array and restart display
+              for ((i=${#oname[@]}-1; i>=0; i--)) do [[ -z "${oname[$i]}" ]] && unset "oname[$i]"; done
+              printf "%.0s\n" "${!oname[@]}" # Print \n for every element in oname
+              dispsta
+            ;;
+            "u") getquota ;;
+            "q") exit ;;
+            *)
+            ;;
+          esac
+        done
+
+        # Update status line
+        [[ $key == "u" ]] || getquota -l
+        dispsta
+        chrono=$SECONDS
+    fi
+
+    [[ -z "$x" ]] && continue
+    [[ "${x:0:3}" == "==>" ]] && fn="${x##*.txt_}" && fn="${fn% <==}" && continue
+
+    # Print service messages
+    if [[ "${x:0:5}" != "<item" ]]
+    then
+      dispmsg "$fn" "$x"
+      continue
+    fi
+
+    # import the values between <item ... />
+    eval ${x:6:-2} 
+
+    # shorten the filename to max 59 chars
+    if [[ "${#fname}" -ge 60 ]]
+    then
+      sname="${fname:0:28}...${fname: -28}"
+    else
+      sname="$fname"
+    fi
+
+    # determine position of the fname
+    ff=-1
+    for ((i=0; i<${#oname[@]}; i++))
+    do
+      if [[ "$fname" == "${oname[$i]}" ]]
+      then
+        ff=$i
+        if [[ $i -gt 0 ]]
+        then
+          pre="\r\e[$((i))A"
+          pst="\e[K\r\e[$((i))B"
+        else
+          pre="\r"
+          pst="\e[K\r" 
+        fi
+      fi
+    done
+
+    # add new filename to array
+    if [[ $ff -eq -1 ]]
+    then
+      ((ff=0))
+      oname=("$fname" "${oname[@]:0:15}")
+      pre="\n\n\e[1A\e[1L"
+      pst="\r" 
+#      dispsta
+
+      #dbg printf "${pre}\radd ${#oname[@]} ${oname[@]}\r"
+      #dbg read -rsn1 -t 100 x < $tty
+      #dbg pre=""
+    fi
+
+#dbg  if $od && [[ "${oname[ff]}" != "$fname" ]]
+#dbg  then
+#dbg    printf "\rERROR\r"
+#dbg    read -rsn1 -t 100 x < $tty
+#dbg  fi
+
+    # print
+    rts="${remain_time}"
+    rth="${rts%%:*}"        # remain_time hours
+    rtm="${rts%:*}"
+    rtm="${rtm#*:}"         # remain_time mins
+    rts="${rts##*:}"        # remain_time secs
+    printf  "%b%s %-60s %4s %6sMb %10s %4s/%4s %2s:%02d:%02d %.0d%b" \
+            "$pre" "$fn" "$sname:" "$per" $((size/1024/1024)) \
+            "$rate_trf" \
+            $((tottrf_sz / 1024 / 1024)) $((tot_sz / 1024 / 1024)) \
+            "$rth" "$rtm" "$rts" \
+            $((ff==0?bwt:0)) \
+            "$pst" 
+            #"$ff" "${#oname[@]}" \
+
+    # reduce array upon completion
+    if ((offset==size))
+    then
+        #dbg printf "\rdel $ff $offset==$size ${oname[@]}\r"
+        #dbg read -rsn1 -t 100 x < $tty
+  
+        oname[$ff]=""
+        ((ff==0)) && bwt=""
+  
+        if $od
+        then
+            ((i=ff)) 
+            if [[ $i -gt 0 ]]
+            then
+                printf "\r\e[${i}A\e[2C%s\r\e[${i}B" " -$i"
+            else
+                printf "\r\e[2C%s\r" " -$i"
+            fi
+        fi
+  
+        while [[ ${#oname[@]} -gt 0 ]] && [[ -z "${oname[-1]}" ]] 
+        do
+            if $od
+            then
+                ((i=${#oname[@]}-1)) 
+                if [[ $i -gt 0 ]]
+                then
+                    printf "\r\e[${i}A\e[2C%s\r\e[${i}B" "$i"
+                else
+                    printf "\r\e[2C%s\r" "$i"
+                fi
+            fi
+            unset -v "oname[-1]"
+        done
+  
+        # Update quota and status line 
+        getquota -l $size 
+        dispsta
+        chrono=$SECONDS
+    fi
+done
