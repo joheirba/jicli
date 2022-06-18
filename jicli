@@ -1,4 +1,7 @@
 #!/bin/bash
+# vim:ts=4:sw=4:noet
+snme="jicli"        # scriptname
+vrsn="v0.1b"        # version
 #
 # JiCli - Jojo's IDrive CLI - Copyright (C) 2022 Joris Heirbaut - GPLv3
 #
@@ -14,19 +17,54 @@
 # If not, see www.gnu.org/licenses/gpl-3.0
 #
 # History
-# v0.1  - Jun 2022 - Joris Heirbaut - Initial version (untested !)
+# v0.1a - Jun 2022 - Joris Heirbaut - Initial version (untested !)
+# v0.1b - Jun 2022 - Joris Heirbaut - Initial version (untested !)
+
+# Wishlist
+# - utility.pl RESTARTIDRIVESERVICES --> restartIdriveServices()
+# - utility.pl CDP... --> cdpWatch()
+# - utility.pl VERIFYBACKUPSET status:string time:hh:mm:ss --> verifyBackupset
+# - utility.pl RECALCULATEBACKUPSETSIZE
+# - utility.pl DISPCRONREBOOTCMD
+# Call stack:
+# - idevsutil_dedup --utf8-cmd=...utf8.txt.1 > /dev/null 2>doBackuperror.txt_1
+# - Backup_Script.pl SCHEDULED joheirba@gmail.com
+#
+# Tests
+# $ /opt/IDrive/scripts/Idrivelib/dependencies/python/dashboard stop --> ok
+# $ /opt/IDrive/scripts/Idrivelib/dependencies/python/dashboard start --> ok
+# $ perl -e "print pack("u",qw([\"evswebireland13.idrive.com\"]))" >../tmp
+#   --> >6R)E=G-W96)I<F5L86YD,3,N:61R:79E+F-O;2)=
+# $ /opt/IDrive/scripts/Idrivelib/dependencies/python/dashboard 9 ../tmp
+#   --> {"DATA": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<tree message=\"SUCCESS\" 
+#        totalquota=\"5368709120000\"\n    usedquota=\"1033855153193\" filecount=\"121196\" 
+#        hlimit=\"n\"/>\n", "STATUS": "SUCCESS"}
+# $ cat IDENPWD | perl -e 'print(unpack("u",substr(<>,3)));'
+
+#
+# makeRequest(i, [data]) == python/dashboard i <<< pack("u", [data])
+#  login:      1 [user-email]
+#  config:     8 [$webAPI, lc($configType),$encKey]
+#  getserver: 12 
+#  getusers:   2 [$uname]
+#  gettoken:   10
+#  sendmail:    6 [$to,$subject,$content]
+#  updateuser:  7 [$device_name, $uniqueID, $enabled, $encodedOS, $currentVersion]
+#  updateLog:   15 [$utf8File] 1
+#  checkUpdate: 4 [$appType."ForLinux",$trimmedVersion]
+
 
 # From https://man7.org/linux/man-pages/man4/console_codes.4.html
 # \eM    Reverse linefeed
-# \e[xA  Move cursor x lines up
-# \e[xB  Move cursor x lines down
+# \e[xA  Move cursor x lines up			tput cuu N
+# \e[xB  Move cursor x lines down		tput cud N
 # \e[1J  Erase display from start to cursor
 # \e[2J  Erase display 
 # \e[3J  Erase display and scroll buffer
-# \e[K   Erase to end of line
+# \e[K   Erase to end of line			tput el
 # \e[1K  Erase from start of line to cursor
-# \e[xL  Insert x lines
-# \e[7m  Reverse video
+# \e[xL  Insert x lines				tput il N
+# \e[7m  Reverse video				tput rev
 # \e[27m Reverse video off
 
 # defaults
@@ -74,10 +112,9 @@ dbup="$dbse/Backup/DefaultBackupSet"
 
 # usage
 function usage() {
-  local n="${0##*/}"
   # don't replace tabs by spaces in following lines !!!
-  sed -e "s/jicli/$n/g" <<-'EOFHELP'
-	JiCli v0.1 (untested alpha) -  Jojo's IDrive CLI  - Copyright (C) 2022 Joris Heirbaut GPL
+  sed -e "s/jicli/$n/g" <<-EOFHELP
+	JiCli $vrsn (untested alpha) - Jojo's IDrive CLI - Copyright (C)2022 Joris Heirbaut GPLv3
 
 	JiCli is free software: you can redistribute it and / or modify it under the terms of the
 	GNU General Public License as published by the Free Software Foundation, either version 3
@@ -90,11 +127,11 @@ function usage() {
 	You should have received a copy of the GNU General Public License along with this program
 	If not, see www.gnu.org/licenses/gpl-3.0
 	
-	usage: jicli [-hvv] [-d <udir>] [-i <idir>] [-u <usr>] [-l <lusr>] [<command> [<arg>...]]
+	usage: $snme [-hvv] [-d <udir>] [-i <idir>] [-u <usr>] [-l <lusr>] [<command> [<arg>...]]
 	flags:
 	  -h    show help and exit
 	  -v    be verbose
-	  -vv   be very verbose
+	  -vv   be very verbose (debug)
 	  -d    set idrive user directory (default /<idir>/idriveIt/user_profile/<lusr>/<usr>)
 	  -i    set idrive directory (default: /opt/IDrive)
 	  -u    set idrive user (default $IDRIVE_USR, ex. -u me@mymail.be)
@@ -106,10 +143,10 @@ function usage() {
 	  set [<var> [<value>]]...  set configuration var(s) to value(s)
 	  get [<var>] [<var>]...    get configuration var(s)
 	examples:
-	  export IDRIVE_USR=me@mymail.be        ifirst set idrive username
-	  jicli                                 show backup progress
-	  cat CONFIGURATION_FILE | jicli dec    decode configuration file
+	  export IDRIVE_USR=me@mymail.be        set idrive username
+	  cat CONFIGURATION_FILE | jicli dec    decode and show configuration file
 	  jicli set bwthrottle 50               set BWTHROTTLE to 50 in configuration file 
+	  jicli                                 show backup progress
 	EOFHELP
 }
 if $oh
@@ -121,6 +158,7 @@ fi
 #==============================================================================
 # Functions
 #==============================================================================
+# Encode/decode idrive configuration files
 function ienc(){
     $od && echo "$0 $@" >&2
     [[ -z "$1" ]] && enc=$(cat) || enc="$1"
@@ -134,7 +172,7 @@ function ienc(){
 }
 function idec(){
     $od && echo "$0 $@" >&2
-    [[ -z "$1" ]] && enc=$(cat) || enc="$1"
+    [[ -z "$1" ]] && enc="$(cat)" || enc="$1"
     #$od && echo "Input=$enc" >&2
     shl=$((${#enc}/4))
     swp="${enc:$((shl*3)):shl}${enc:$shl:$((shl*2))}${enc:0:$shl}${enc:$((shl*4))}"
@@ -192,83 +230,36 @@ function iset(){
 }
 
 # getquota [-l] <transferred>
-#typeset -i qua_tft=0
+((qua_sec=10))             # wait 10 seconds before updating quota (for faster startup)
+((qua_nxt=200*1024*1024))  # or transfer at least 200Mb before updating quota
+qua_txt="wait"	   		   # quota text
 function getquota(){
     # Lazy: only get quota every 60seconds and 1GB of data
     if [[ "$1" == "-l" ]]
     then
       shift
-      ((qua_tft = qua_tft + ${1:-0}))
-      ((SECONDS > (qua_sec + 60) )) || return 1
-      ((qua_tft > (qua_old + 1024 * 1024 * 1024) )) || return 2
-    elif [[ $qua_sec -gt 0 ]]
-    then
-      ((SECONDS > (qua_sec + 20) )) || return 1
+      ((qua_tft += ${1:-0} ))
+      ((SECONDS > qua_sec)) || return 1
+	  ((qua_tft > qua_nxt)) || ((qua_sec==10)) || return 2
+    else
+      ((qua_tft += ${1:-0} ))
+      ((SECONDS > qua_sec)) || return 1
     fi
+
+	# Clear quota
+    mv -f "$dbse"/.quota.txt "$dbse"/.quota.old 2> /dev/null
+	qua_txt=""
 
     # Get quota
     $didv/scripts/utility.pl GETQUOTA < /dev/null &
     # faster: /opt/IDrive/scripts/IDrivelib/dependencies/python/dashboard 9 16553067079
 
     # Update lazy counters
-    qua_sec=$SECONDS
-    qua_old=$qua_tft
+    ((qua_sec=SECONDS+120))     # check again after at least 2 minutes
+    ((qua_nxt=200*1024*1024))   # check again after at least 200Mb
+    ((qua_tft=0))
 }
 
-# Display status line below the progress lines
-function dispsta()
-{
-    local bws=$(cat "$dbup"/bw.txt)
-    local tfs=$(cat "$dbup"/TotalSizeFile)
-    local pgs=$(awk 'FNR==3 {x+=$1} END {print x}' "$dbup"/PROGRESS_DETAILS_*)
-
-    ((pgs=pgs/1024/1024/1024))
-    ((tfs=tfs/1024/1024/1024))
-    txt="GPLv3 h:help q:quit +/-:change bw=$bws Tft=$pgs/${tfs}GB"
-
-    if [[ -f "$dbup"/../../.quota.txt ]]
-    then
-        eval $(cat "$dbup"/../../.quota.txt)
-        ((qt=totalQuota/1024/1024/1024))
-        ((qu=usedQuota/1024/1024/1024))
-        txt+=" Quota=${qu}/${qt}GB"
-
-        $ov && txt+="/$((SECONDS - qua_sec)):$(((qua_tft - qua_old) / 1024 / 1024))"
-    fi
-
-    ((cols=(ttc>106?106:ttc)-10)) # more than 106 is not needed - 10 for clock at the end
-    printf "\n\e[7m%-${cols}s%4d:%02d:%02d\e[27m\r\e[1A" "$txt" \
-        $((SECONDS/3600)) $((SECONDS%3600/60)) $((SECONDS%60))
-
-#dbg:  read -rsn1  x < $tty
-}
-
-# Display messages above the progress lines
-function dispmsg()
-{
-    local fn="$1"; shift
-    local msg="$@"
-    local i=${#oname[@]}
-
-    # Print above oldest running file
-    #printf "\n==="
-    #printf "\n??? $i ???\n"
-    pre="\n\n\e[$((i+1))A\e[1L"
-    if [[ $i -ge 1 ]]
-    then
-      pst="\e[K\r\e[$((i))B"
-    else
-      pst="\e[K\r"
-    fi
-
-#dbg    printf "${pre}debug msg\r"
-#dbg    read -rsn1  x < $tty
-#dbg    pre=""
-
-    printf "${pre}%s [%s]${pst}" "$fn" "$msg"
-}
-
-# Encode/decode idrive configuration files
 #==============================================================================
 # Execute command
 #==============================================================================
@@ -285,10 +276,24 @@ esac
 #==============================================================================
 # Show Backup Progress
 #==============================================================================
+# Debugging tools
+function printqn2err () { printf "%q\n" "$@" >&2 ; } 
+$od && echod=printqn2err || echod=:
+
+# Usefull terminal codes from tput (with fallback escape sequeces)
+$echod "tcc_rev:${tcc_rev:=$(tput rev  	|| echo -e "\e[7m")}"     	# reverse video
+$echod "tcc_sgr:${tcc_sgr:=$(tput sgr0 	|| echo -e "\e[m")}"    	# normal  video
+$echod "tcc_el :${tcc_el:=$(tput el	  	|| echo -e "\e[K")}"       	# erase to end-of-line
+#$echod "tcc_sc :${tcc_sc:=$(tput sc	  	|| echo -e "\e7")}"      	# save cursor position
+#$echod "tcc_rc :${tcc_rc:=$(tput rc	  	|| echo -e "\e8")}"      	# restore cursor position
+$echod "tcc_il :${tcc_il:=$(tput il 1	|| echo -e "\e[1L")}"     	# insert 1 lines
+$echod "tcc_cuu:${tcc_cuu:=$(tput cuu 1 || echo -e "\e[1A")}"   	# cursor up 1 lines
+$echod "tcc_cud:${tcc_cud:=$(tput cud 1 || echo -e "\e[1B")}"   	# cursor down 1 lines
+#$echod "tcc_cup:${tcc_cup:=$(tput cup 0 1 || echo -e "\e[1;2H")}"  	# cursor position 1,2
+
 # Prepare terminal and exit trap
 tty=$(tty)
 tto=$(stty -g)
-ttc=$(tput cols)   # get width of line in characters
 tput rmam          # no wrapping on terminal
 tput civis         # cursor invisible
 stty -echo
@@ -299,14 +304,84 @@ function cleanup()
     stty $tto   # restore stty echo
     printf "\n\n"
 }
+function winch()
+{
+    ttc=$(tput cols)   # get width of line in characters
+    ((tnc=ttc-47))     # width available for the filename (see fmt_pgs)
+    ((tn1=(tnc-3)/2))  # first part of filename
+    ((tn2=tnc-3-tn1))  # second part of filename
+
+    # format for progress and status lines
+    fmt_pgs="%b%s %-${tnc}s %4s %6sMb %10s %4s/%4s %2s:%02d:%02d%b" 
+    fmt_sta="\n${tcc_rev}%-$((ttc-11)).$((ttc-11))s%4d:%02d:%02d ${tcc_sgr}\r${tcc_cuu}"
+    fmt_msg="%b%s [%-.$((ttc-4))s]%b" 
+}
 trap cleanup EXIT
-trap 'ttc=$(tput cols)' WINCH
+trap winch WINCH
+winch
+
+# Display status line below the progress lines
+function dispsta()
+{
+    local bws=$(cat "$dbup"/bw.txt)
+    local tfs=$(cat "$dbup"/TotalSizeFile)
+    local pgs=$(awk 'FNR==3 {x+=$1} END {print x}' "$dbup"/PROGRESS_DETAILS_*)
+
+    ((pgs=pgs/1024/1024/1024))
+    ((tfs=tfs/1024/1024/1024))
+    txt="GPLv3 h:help q:quit +/-:change bw=$bws Tft=$pgs/${tfs}GB"
+
+    # Wait for quota to become available
+	if [[ -z "$qua_txt" ]] && [[ -f "$dbse"/.quota.txt ]]
+	then
+       	eval $(cat "$dbup"/../../.quota.txt)
+        ((qua_tot=totalQuota/1024/1024/1024))
+	    ((qua_usd=usedQuota/1024/1024/1024))
+		((qua_nxt=(qua_usd+2)*1024*1024*1024-usedQuota))
+		qua_txt=" Quota=${qua_usd}/${qua_tot}GB"
+	fi
+	if [[ "${#qua_txt}" -gt 4 ]]
+	then
+		txt+="$qua_txt"
+		$ov && txt+="[$((qua_tft / 1024 / 1024))/$((qua_nxt / 1024 / 1024))Mb:${qua_sec}]"
+	fi
+
+    printf "$fmt_sta" "$txt" $((SECONDS/3600)) $((SECONDS%3600/60)) $((SECONDS%60))
+
+    # Don't come back too soon
+    chrono=$SECONDS
+}
+
+# Display messages above the progress lines
+# usage: dismsg <fn> <msg>....
+function dispmsg()
+{
+    local fn="$1"; shift
+    local msg="$@"
+    local i=${#oname[@]}
+
+    # Shorten long messages
+    if [[ ${#msg} -gt $((ttc-4)) ]]
+    then
+	  msg="${msg:0:$((ttc/2-3))}...${msg: -$(((ttc-7)/2))}"
+    fi
+    $od && [[ ${#msg} -gt $((ttc-4)) ]] && read -rsn1 -p "debug: #msg=${#msg} ttc=$ttc" x < $tty
+
+    # Print above oldest running file
+    pre="${tcc_sc}\n\n${tcc_cuu/1/$((i+1))}${tcc_il}"
+    [[ $i -ge 1 ]] && pst="${tcc_el}\r${tcc_cud/1/$i}" || pst="${tcc_el}\r"
+
+#dbg    printf "${pre}debug msg\r"
+#dbg    read -rsn1  x < $tty
+#dbg    pre=""
+
+    printf "$fmt_msg" "${pre}" "$fn" "$msg" "${pst}"
+}
 
 # Show status line
 dispsta
 
 # Start following
-chrono=$SECONDS
 [[ -z "$on" ]] || on="-n $on"
 tail $on -F "$dbup"/output.txt_* 2>&1 |
 while :
@@ -317,61 +392,61 @@ do
         # Handle interactive commands
         while read -rsn1 -t 0.001 key < $tty 2> /dev/null
         do
-          case $key in
-            "+")  
-              bwt=$(cat "$dbup"/bw.txt)
-              ((bwt=bwt+10))
-              ((bwt>100)) && bwt=100
-              echo -n $bwt > "$dbup"/bw.txt
-              iset BWTHROTTLE $bwt
-            ;;
-            "-")  
-              bwt=$(cat "$dbup"/bw.txt)
-              ((bwt=bwt-10))
-              ((bwt<10)) && bwt=10
-              echo -n $bwt > "$dbup"/bw.txt
-              iset BWTHROTTLE $bwt
-            ;;
-            "h")
-              # print usage below the status line
-              printf "\n\n"
-              usage
-    
-              # compact array and restart display
-              for ((i=${#oname[@]}-1; i>=0; i--)) do [[ -z "${oname[$i]}" ]] && unset "oname[$i]"; done
-              printf "%.0s\n" "${!oname[@]}" # Print \n for every element in oname
-              dispsta
-            ;;
-            "u") getquota ;;
-            "q") exit ;;
-            *)
-            ;;
-          esac
+            case $key in
+                "+")  
+                    bwt=$(cat "$dbup"/bw.txt)
+                    ((bwt=bwt+10))
+                    ((bwt>100)) && bwt=100
+                    echo -n $bwt > "$dbup"/bw.txt
+                    iset BWTHROTTLE $bwt
+                ;;
+                "-")  
+                    bwt=$(cat "$dbup"/bw.txt)
+                    ((bwt=bwt-10))
+                    ((bwt<10)) && bwt=10
+                    echo -n $bwt > "$dbup"/bw.txt
+                    iset BWTHROTTLE $bwt
+                ;;
+                "h")
+                    # print usage below the status line
+                    printf "\n\n"
+                    usage
+          
+                    # compact array and restart display
+                    for ((i=${#oname[@]}-1; i>=0; i--)) do [[ -z "${oname[$i]}" ]] && unset "oname[$i]"; done
+                    printf "%.0s\n" "${!oname[@]}" # Print \n for every element in oname
+                    dispsta
+                ;;
+                "u") getquota ;;
+                "q") exit ;;
+                *)
+                ;;
+            esac
         done
 
         # Update status line
         [[ $key == "u" ]] || getquota -l
         dispsta
-        chrono=$SECONDS
     fi
 
+    # Handle non progress-lines (not <item .../>)
     [[ -z "$x" ]] && continue
     [[ "${x:0:3}" == "==>" ]] && fn="${x##*.txt_}" && fn="${fn% <==}" && continue
+    [[ "${x:0:5}" != "<item" ]] && dispmsg "$fn" "$x" && continue
+    [[ "${x: -2}" != "/>" ]] && split="$x" && ($od && dispmsg 0 "split: $x" || : ) && continue
+    [[ -n "$split" ]] && ($od && dispmsg 0 "split: $x" || : ) && x="$split$x" && split=""
 
-    # Print service messages
-    if [[ "${x:0:5}" != "<item" ]]
+    # import the values between <item ... />
+    if ! eval ${x:6: -2} 2>&1 
     then
-      dispmsg "$fn" "$x"
+      $ov && dispmsg 0 "eval error on $x"
       continue
     fi
 
-    # import the values between <item ... />
-    eval ${x:6:-2} 
-
-    # shorten the filename to max 59 chars
-    if [[ "${#fname}" -ge 60 ]]
+    # shorten the filename to fit the screen
+    if ((${#fname} >= tnc))
     then
-      sname="${fname:0:28}...${fname: -28}"
+      sname="${fname:0:$tn1}...${fname: -$tn2}"
     else
       sname="$fname"
     fi
@@ -385,11 +460,11 @@ do
         ff=$i
         if [[ $i -gt 0 ]]
         then
-          pre="\r\e[$((i))A"
-          pst="\e[K\r\e[$((i))B"
+          pre="\r${tcc_cuu/1/$i}"
+          pst="${tcc_el}\r${tcc_cud/1/$i}"
         else
           pre="\r"
-          pst="\e[K\r" 
+          pst="${tcc_el}\r" 
         fi
       fi
     done
@@ -399,9 +474,9 @@ do
     then
       ((ff=0))
       oname=("$fname" "${oname[@]:0:15}")
-      pre="\n\n\e[1A\e[1L"
+      pre="\n\n${tcc_cuu}${tcc_il}"
       pst="\r" 
-#      dispsta
+      # dispsta
 
       #dbg printf "${pre}\radd ${#oname[@]} ${oname[@]}\r"
       #dbg read -rsn1 -t 100 x < $tty
@@ -420,13 +495,14 @@ do
     rtm="${rts%:*}"
     rtm="${rtm#*:}"         # remain_time mins
     rts="${rts##*:}"        # remain_time secs
-    printf  "%b%s %-60s %4s %6sMb %10s %4s/%4s %2s:%02d:%02d %.0d%b" \
-            "$pre" "$fn" "$sname:" "$per" $((size/1024/1024)) \
+    printf  "$fmt_pgs" \
+            "$pre" "$fn" "$sname" "$per" $((size/1024/1024)) \
             "$rate_trf" \
             $((tottrf_sz / 1024 / 1024)) $((tot_sz / 1024 / 1024)) \
             "$rth" "$rtm" "$rts" \
-            $((ff==0?bwt:0)) \
             "$pst" 
+
+            #$((ff==0?bwt:0)) \
             #"$ff" "${#oname[@]}" \
 
     # reduce array upon completion
@@ -465,8 +541,6 @@ do
         done
   
         # Update quota and status line 
-        getquota -l $size 
-        dispsta
-        chrono=$SECONDS
+        getquota -l $size && dispsta
     fi
 done
